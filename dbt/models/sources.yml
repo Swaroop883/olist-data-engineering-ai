@@ -1,0 +1,36 @@
+version: 2
+
+sources:
+  - name: raw
+    description: "Raw Olist e-commerce data loaded into MotherDuck."
+
+    schema: raw
+
+    tables:
+
+      - name: raw_customers
+        description: "Olist customer records."
+
+      - name: raw_geolocation
+        description: "Brazilian customer and seller geolocation data."
+
+      - name: raw_order_items
+        description: "Items included in each Olist order."
+
+      - name: raw_order_payments
+        description: "Payment information for Olist orders."
+
+      - name: raw_order_reviews
+        description: "Customer reviews and review scores for orders."
+
+      - name: raw_orders
+        description: "Order-level information and order timestamps."
+
+      - name: raw_products
+        description: "Product information for products sold through Olist."
+
+      - name: raw_sellers
+        description: "Olist seller information."
+
+      - name: raw_product_category_translation
+        description: "Portuguese-to-English product category translations."
