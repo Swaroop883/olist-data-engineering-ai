@@ -1,0 +1,79 @@
+version: 2
+
+models:
+
+  - name: core_orders
+    description: "Core order and customer model."
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+          - unique
+
+      - name: customer_id
+        tests:
+          - not_null
+
+  - name: core_order_items
+    description: "Core order item model with product and seller information."
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+
+      - name: order_item_id
+        tests:
+          - not_null
+
+      - name: product_id
+        tests:
+          - not_null
+
+      - name: seller_id
+        tests:
+          - not_null
+
+  - name: core_order_payments
+    description: "Core payment model linked to orders and customers."
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+
+      - name: payment_type
+        tests:
+          - not_null
+
+      - name: payment_value
+        tests:
+          - not_null
+
+  - name: core_order_reviews
+    description: "Core review model linked to orders and customers."
+    columns:
+      - name: review_id
+        tests:
+          - not_null
+
+      - name: order_id
+        tests:
+          - not_null
+
+      - name: review_score
+        tests:
+          - not_null
+
+  - name: mart_sales
+    description: "Order-item level sales analysis model."
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+
+      - name: product_id
+        tests:
+          - not_null
+
+      - name: total_item_value
+        tests:
+          - not_null
