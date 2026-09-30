@@ -5,3 +5,15 @@ __pycache__/
 venv/
 .env.*
 *.pem
+# Airflow
+airflow/airflow.db
+airflow/airflow.db-shm
+airflow/airflow.db-wal
+airflow/logs/
+airflow/__pycache__/
+airflow/dags/__pycache__/
+airflow/airflow.cfg
+airflow/simple_auth_manager_passwords.json.generated
+
+# Airflow logs
+logs/
