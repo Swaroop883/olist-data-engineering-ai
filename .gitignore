@@ -1,10 +1,19 @@
-﻿.env
+﻿
+.env
+.env.*
+*.pem
+
+# Python
 __pycache__/
 *.pyc
 .venv/
 venv/
-.env.*
-*.pem
+rag_venv/
+airflow_venv/
+
+# Generated RAG vector database
+ai/chroma_db/
+
 # Airflow
 airflow/airflow.db
 airflow/airflow.db-shm
