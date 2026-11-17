@@ -1,8 +1,21 @@
+"""
+Incremental & Idempotent AI Customer Review Enrichment (Module M5 - FR_6, NFR_1, NFR_7, NFR_8).
 
-import os
+Enriches unenriched customer reviews in `olist.raw.raw_order_reviews` using Groq LLM
+(`openai/gpt-oss-120b` by default) and stores structured sentiment, topic, summary,
+issue_category, language, plus auditability metadata (`model_name`, `prompt_version`,
+`enriched_at`) in `olist.ai.enriched_order_reviews`.
+"""
+
+from __future__ import annotations
+
+import argparse
 import json
-import duckdb
+import os
+import time
 from pathlib import Path
+
+import duckdb
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 
@@ -11,31 +24,36 @@ from langchain_groq import ChatGroq
 # --------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 MOTHERDUCK_TOKEN = os.getenv("MOTHERDUCK_TOKEN", "").strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 
-if not MOTHERDUCK_TOKEN:
-    raise RuntimeError("MOTHERDUCK_TOKEN is missing from .env")
+MODEL_NAME = os.getenv("GROQ_ENRICH_MODEL", "openai/gpt-oss-120b")
+PROMPT_VERSION = "v2.0-contextual-audit"
+DEFAULT_BATCH_SIZE = 5
+MAX_RETRIES = 4
 
-if not GROQ_API_KEY:
-    raise RuntimeError("GROQ_API_KEY is missing from .env")
 
-BATCH_SIZE = 5
-
-llm = ChatGroq(
-    model="qwen/qwen3.8-27b",
-    temperature=0,
-    api_key=GROQ_API_KEY,
-)
+def get_llm() -> ChatGroq:
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is missing from .env")
+    return ChatGroq(
+        model=MODEL_NAME,
+        temperature=0,
+        api_key=GROQ_API_KEY,
+    )
 
 
 # --------------------------------------------------
-# 2. AI enrichment
+# 2. AI enrichment with retry handling
 # --------------------------------------------------
 
-def enrich_review(title, comment, score):
+def enrich_review(title: str | None, comment: str | None, score: int | None, llm=None) -> dict:
+    """Enrich a single customer review into structured JSON fields."""
+    if llm is None:
+        llm = get_llm()
+
     review_text = (
         f"Title: {title or 'No title'}\n"
         f"Comment: {comment or 'No comment'}\n"
@@ -95,11 +113,44 @@ Review:
     return result
 
 
+def enrich_with_retries(title, comment, score, llm=None) -> dict:
+    """Invoke enrich_review with exponential backoff for transient API rate limits."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            return enrich_review(title, comment, score, llm=llm)
+        except Exception as exc:
+            message = str(exc).lower()
+            retryable = any(
+                term in message
+                for term in [
+                    "429",
+                    "rate limit",
+                    "rate_limit",
+                    "timeout",
+                    "500",
+                    "502",
+                    "503",
+                    "504",
+                    "temporarily unavailable",
+                ]
+            )
+            if not retryable or attempt == MAX_RETRIES - 1:
+                raise
+            wait_seconds = min(15 * (2**attempt), 120)
+            print(
+                f"Transient API error ({exc}). Waiting {wait_seconds}s "
+                f"before retry {attempt + 1}/{MAX_RETRIES - 1}..."
+            )
+            time.sleep(wait_seconds)
+    raise RuntimeError("Exhausted retries in enrich_with_retries")
+
+
 # --------------------------------------------------
-# 3. Create destination table
+# 3. Create / migrate destination table (NFR_7 Auditability)
 # --------------------------------------------------
 
-def create_enrichment_table(con):
+def create_enrichment_table(con) -> None:
+    """Create olist.ai.enriched_order_reviews and ensure audit metadata columns exist."""
     con.execute("CREATE SCHEMA IF NOT EXISTS olist.ai")
 
     con.execute("""
@@ -114,16 +165,32 @@ def create_enrichment_table(con):
             summary VARCHAR,
             issue_category VARCHAR,
             language VARCHAR,
-            enriched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            enriched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            model_name VARCHAR DEFAULT 'openai/gpt-oss-120b',
+            prompt_version VARCHAR DEFAULT 'v2.0-contextual-audit'
         )
+    """)
+
+    # Non-destructive migration for existing table (preserves all 3,011 existing rows)
+    con.execute("""
+        ALTER TABLE olist.ai.enriched_order_reviews
+        ADD COLUMN IF NOT EXISTS model_name VARCHAR DEFAULT 'openai/gpt-oss-120b'
+    """)
+    con.execute("""
+        ALTER TABLE olist.ai.enriched_order_reviews
+        ADD COLUMN IF NOT EXISTS prompt_version VARCHAR DEFAULT 'v2.0-contextual-audit'
     """)
 
 
 # --------------------------------------------------
-# 4. Process a batch of new reviews
+# 4. Process a bounded batch of new reviews
 # --------------------------------------------------
 
-def main():
+def run_incremental_enrichment(batch_size: int = DEFAULT_BATCH_SIZE) -> dict[str, int]:
+    """Enrich up to `batch_size` unenriched reviews idempotently."""
+    if not MOTHERDUCK_TOKEN:
+        raise RuntimeError("MOTHERDUCK_TOKEN is missing from .env")
+
     os.environ["motherduck_token"] = MOTHERDUCK_TOKEN
     con = duckdb.connect()
 
@@ -136,40 +203,64 @@ def main():
 
         create_enrichment_table(con)
 
+        existing_count = con.execute(
+            "SELECT COUNT(*) FROM olist.ai.enriched_order_reviews"
+        ).fetchone()[0]
+        print(f"Existing enriched reviews in MotherDuck: {existing_count}")
+
+        if batch_size <= 0:
+            print("Batch size is 0 (bounded cost mode). Skipping new API calls.")
+            return {"processed": 0, "failed": 0, "existing": int(existing_count)}
+
+        # Deduplicate raw reviews by review_id so duplicate review_ids across orders
+        # do not trigger primary key collisions.
         reviews = con.execute("""
+            WITH dedup_raw AS (
+                SELECT
+                    r.review_id,
+                    r.order_id,
+                    r.review_score,
+                    r.review_comment_title,
+                    r.review_comment_message,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY r.review_id
+                        ORDER BY r.review_creation_date DESC NULLS LAST, r.order_id
+                    ) AS rn
+                FROM olist.raw.raw_order_reviews AS r
+                WHERE COALESCE(TRIM(r.review_comment_message), '') <> ''
+                  AND r.review_id IS NOT NULL
+            )
             SELECT
-                r.review_id,
-                r.order_id,
-                r.review_score,
-                r.review_comment_title,
-                r.review_comment_message
-            FROM olist.raw.raw_order_reviews AS r
+                d.review_id,
+                d.order_id,
+                d.review_score,
+                d.review_comment_title,
+                d.review_comment_message
+            FROM dedup_raw AS d
             LEFT JOIN olist.ai.enriched_order_reviews AS e
-                ON r.review_id = e.review_id
-            WHERE COALESCE(r.review_comment_message, '') <> ''
+                ON d.review_id = e.review_id
+            WHERE d.rn = 1
               AND e.review_id IS NULL
-            ORDER BY r.review_id
+            ORDER BY d.review_id
             LIMIT ?
-        """, [BATCH_SIZE]).fetchall()
+        """, [batch_size]).fetchall()
 
         if not reviews:
             print("No unenriched reviews with comments remain.")
-            return
+            return {"processed": 0, "failed": 0, "existing": int(existing_count)}
 
-        print(f"Found {len(reviews)} reviews to process.")
+        print(f"Found {len(reviews)} unenriched reviews to process (model={MODEL_NAME}).")
+        llm = get_llm()
 
         for review in reviews:
             review_id, order_id, score, title, comment = review
-
             print(f"\nProcessing review: {review_id}")
 
             try:
-                # Call Groq to transform the review
-                result = enrich_review(title, comment, score)
+                result = enrich_with_retries(title, comment, score, llm=llm)
 
-                # Save each successful result separately
                 con.execute("""
-                    INSERT INTO olist.ai.enriched_order_reviews (
+                    INSERT OR IGNORE INTO olist.ai.enriched_order_reviews (
                         review_id,
                         order_id,
                         review_score,
@@ -179,9 +270,12 @@ def main():
                         topic,
                         summary,
                         issue_category,
-                        language
+                        language,
+                        enriched_at,
+                        model_name,
+                        prompt_version
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
                 """, [
                     review_id,
                     order_id,
@@ -193,6 +287,8 @@ def main():
                     result["summary"],
                     result["issue_category"],
                     result["language"],
+                    MODEL_NAME,
+                    PROMPT_VERSION,
                 ])
 
                 processed += 1
@@ -207,10 +303,29 @@ def main():
         print(f"Successfully enriched: {processed}")
         print(f"Failed: {failed}")
         print(f"Batch size: {len(reviews)}")
+        print(f"Model metadata: {MODEL_NAME} ({PROMPT_VERSION})")
         print("Destination: olist.ai.enriched_order_reviews")
+
+        return {
+            "processed": processed,
+            "failed": failed,
+            "existing": int(existing_count) + processed,
+        }
 
     finally:
         con.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Incremental AI review enrichment via Groq.")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=int(os.getenv("ENRICH_BATCH_SIZE", str(DEFAULT_BATCH_SIZE))),
+        help="Maximum number of unenriched reviews to process in this run (0 to only verify table).",
+    )
+    args = parser.parse_args()
+    run_incremental_enrichment(batch_size=args.batch_size)
 
 
 if __name__ == "__main__":
