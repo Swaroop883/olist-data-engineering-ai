@@ -1,207 +1,64 @@
+"""
+Bulk / Multi-Batch AI Customer Review Enrichment Runner (Module M5 - FR_6, NFR_7).
 
-import os
-import json
-import time
-import duckdb
-from pathlib import Path
-from dotenv import load_dotenv
-from langchain_groq import ChatGroq
-
-# Configuration
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
-
-MOTHERDUCK_TOKEN = os.getenv("MOTHERDUCK_TOKEN", "").strip()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-
-BATCH_SIZE = 5
-PAUSE_BETWEEN_REVIEWS = 2
-MAX_RETRIES = 5
-
-if not MOTHERDUCK_TOKEN:
-    raise RuntimeError("MOTHERDUCK_TOKEN is missing from .env")
-
-if not GROQ_API_KEY:
-    raise RuntimeError("GROQ_API_KEY is missing from .env")
-
-llm = ChatGroq(
-    model="openai/gpt-oss-120b",
-    temperature=0,
-    api_key=GROQ_API_KEY,
-)
-
-
-def enrich_review(title, comment, score):
-    prompt = f"""
-Analyze this e-commerce customer review. It may be in Portuguese
-or another language.
-
-Return ONLY a valid JSON object with these keys:
-- sentiment: positive, neutral, or negative
-- topic: short category such as delivery, product_quality,
-  packaging, price, or service
-- summary: concise English summary
-- issue_category: specific problem, or "none" if no issue
-- language: language of the review
-
-Do not invent problems the customer did not mention.
-
-Title: {title or 'No title'}
-Comment: {comment or 'No comment'}
-Score: {score}/5
+Iterates over unenriched customer reviews in batches using the shared idempotent
+enrichment logic in `ai/enrich_reviews.py`, with configurable `--max-batches`
+so bulk backfills remain bounded and safe.
 """
 
-    response = llm.invoke(prompt)
-    content = response.content
+from __future__ import annotations
 
-    if not isinstance(content, str):
-        raise ValueError("Groq returned an unexpected response format")
+import argparse
+import time
 
-    content = content.strip()
+from enrich_reviews import DEFAULT_BATCH_SIZE, run_incremental_enrichment
 
-    if content.startswith("```"):
-        content = content.split("\n", 1)[1]
-        content = content.rsplit("```", 1)[0].strip()
-
-    result = json.loads(content)
-
-    required = {
-        "sentiment",
-        "topic",
-        "summary",
-        "issue_category",
-        "language",
-    }
-
-    if not isinstance(result, dict) or not required.issubset(result):
-        raise ValueError("Invalid enrichment JSON returned by Groq")
-
-    if result["sentiment"] not in {"positive", "neutral", "negative"}:
-        raise ValueError("Invalid sentiment returned by Groq")
-
-    return result
-
-
-def create_table(con):
-    con.execute("CREATE SCHEMA IF NOT EXISTS olist.ai")
-
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS olist.ai.enriched_order_reviews (
-            review_id VARCHAR PRIMARY KEY,
-            order_id VARCHAR,
-            review_score INTEGER,
-            review_comment_title VARCHAR,
-            review_comment_message VARCHAR,
-            sentiment VARCHAR,
-            topic VARCHAR,
-            summary VARCHAR,
-            issue_category VARCHAR,
-            language VARCHAR,
-            enriched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-
-def enrich_with_retries(title, comment, score):
-    for attempt in range(MAX_RETRIES):
-        try:
-            return enrich_review(title, comment, score)
-        except Exception as exc:
-            message = str(exc).lower()
-
-            retryable = any(term in message for term in [
-                "429", "rate limit", "rate_limit", "timeout",
-                "500", "502", "503", "504",
-                "temporarily unavailable",
-            ])
-
-            if not retryable or attempt == MAX_RETRIES - 1:
-                raise
-
-            wait_seconds = min(30 * (2 ** attempt), 300)
-            print(
-                f"Temporary API error. Waiting {wait_seconds}s "
-                f"before retry {attempt + 1}/{MAX_RETRIES - 1}."
-            )
-            time.sleep(wait_seconds)
+PAUSE_BETWEEN_BATCHES = 2
 
 
 def main():
-    os.environ["motherduck_token"] = MOTHERDUCK_TOKEN
-    con = duckdb.connect()
+    parser = argparse.ArgumentParser(
+        description="Run multi-batch AI review enrichment with rate-limit safety."
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help="Reviews per batch.",
+    )
+    parser.add_argument(
+        "--max-batches",
+        type=int,
+        default=10,
+        help="Maximum batches to process in one execution (0 for unlimited).",
+    )
+    args = parser.parse_args()
 
-    processed = 0
-    failed = 0
+    total_processed = 0
+    total_failed = 0
+    batch_num = 0
 
-    try:
-        con.execute("LOAD motherduck")
-        con.execute("ATTACH 'md:olist_db' AS olist")
-        create_table(con)
+    while True:
+        batch_num += 1
+        print(f"\n=== Starting Batch {batch_num} ===")
+        stats = run_incremental_enrichment(batch_size=args.batch_size)
+        total_processed += stats["processed"]
+        total_failed += stats["failed"]
 
-        while True:
-            reviews = con.execute("""
-                SELECT
-                    r.review_id,
-                    r.order_id,
-                    r.review_score,
-                    r.review_comment_title,
-                    r.review_comment_message
-                FROM olist.raw.raw_order_reviews AS r
-                LEFT JOIN olist.ai.enriched_order_reviews AS e
-                    ON r.review_id = e.review_id
-                WHERE COALESCE(r.review_comment_message, '') <> ''
-                  AND e.review_id IS NULL
-                ORDER BY r.review_id
-                LIMIT ?
-            """, [BATCH_SIZE]).fetchall()
+        if stats["processed"] == 0 and stats["failed"] == 0:
+            print("All eligible reviews are already enriched.")
+            break
 
-            if not reviews:
-                print("\nNo unenriched reviews remain.")
-                break
+        if args.max_batches > 0 and batch_num >= args.max_batches:
+            print(f"Reached --max-batches={args.max_batches} limit.")
+            break
 
-            print(f"\nProcessing batch of {len(reviews)} reviews.")
+        time.sleep(PAUSE_BETWEEN_BATCHES)
 
-            for review in reviews:
-                review_id, order_id, score, title, comment = review
-                print(f"\nReview: {review_id}")
-
-                try:
-                    result = enrich_with_retries(title, comment, score)
-
-                    con.execute("""
-                        INSERT INTO olist.ai.enriched_order_reviews (
-                            review_id, order_id, review_score,
-                            review_comment_title, review_comment_message,
-                            sentiment, topic, summary,
-                            issue_category, language
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, [
-                        review_id, order_id, score, title, comment,
-                        result["sentiment"], result["topic"],
-                        result["summary"], result["issue_category"],
-                        result["language"],
-                    ])
-
-                    processed += 1
-                    print(json.dumps(result, indent=2, ensure_ascii=False))
-                    print("Saved successfully.")
-
-                except Exception as exc:
-                    failed += 1
-                    print(f"Failed review {review_id}: {exc}")
-
-                time.sleep(PAUSE_BETWEEN_REVIEWS)
-
-            print(f"\nRun totals: saved={processed}, failed={failed}")
-
-        print("\n========== FINAL SUMMARY ==========")
-        print(f"Enriched this run: {processed}")
-        print(f"Failed this run: {failed}")
-        print("Destination: olist.ai.enriched_order_reviews")
-
-    finally:
-        con.close()
+    print("\n========== FINAL SUMMARY ==========")
+    print(f"Enriched this run: {total_processed}")
+    print(f"Failed this run: {total_failed}")
+    print("Destination: olist.ai.enriched_order_reviews")
 
 
 if __name__ == "__main__":

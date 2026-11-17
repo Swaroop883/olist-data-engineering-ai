@@ -1,20 +1,30 @@
-﻿
+# Environment variables & secrets (NEVER COMMIT)
 .env
 .env.*
 *.pem
+*.key
 
-# Python
+# Python virtual environments & caches
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
 .venv/
 venv/
 rag_venv/
 airflow_venv/
 
-# Generated RAG vector database
+# Local vector database & DuckDB local files
 ai/chroma_db/
+*.duckdb
+*.duckdb.wal
 
-# Airflow
+# dbt generated artifacts & logs
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# Airflow runtime state & logs
 airflow/airflow.db
 airflow/airflow.db-shm
 airflow/airflow.db-wal
@@ -23,6 +33,9 @@ airflow/__pycache__/
 airflow/dags/__pycache__/
 airflow/airflow.cfg
 airflow/simple_auth_manager_passwords.json.generated
-
-# Airflow logs
 logs/
+
+# Archives, OS & editor temp files
+*.zip
+.DS_Store
+command.txt

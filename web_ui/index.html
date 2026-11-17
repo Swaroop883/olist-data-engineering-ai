@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Olist Data Engineering, OLAP & AI Analytics Platform</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <style>
+    body { background: #0b1120; color: #f1f5f9; font-family: 'Inter', system-ui, sans-serif; }
+    .glass { background: rgba(30, 41, 59, 0.72); backdrop-filter: blur(12px); border: 1px solid rgba(148, 163, 184, 0.16); }
+    .tab-active { background: linear-gradient(135deg, #10b981, #059669); color: #fff; font-weight: 700; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+  <!-- Top Executive Header -->
+  <header class="border-b border-slate-800 bg-slate-900/90 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-extrabold tracking-tight text-white flex items-center gap-2">
+        🚀 Olist Cloud OLAP & AI Analytics Platform
+      </h1>
+      <p class="text-xs text-slate-400 mt-0.5">
+        DuckDB / MotherDuck Warehouse • Kimball Galaxy Schema • Opinion-Aware Multi-Stage RAG • Agentic SQLGlot Text-to-SQL
+      </p>
+    </div>
+    <!-- 4 + 1 Navigation Tabs -->
+    <nav class="flex flex-wrap gap-2">
+      <button onclick="switchTab('copilot')" id="tab-copilot" class="px-4 py-2 rounded-xl text-sm tab-active transition">
+        🤖 1. NLP Prompt Copilot
+      </button>
+      <button onclick="switchTab('bi')" id="tab-bi" class="px-4 py-2 rounded-xl text-sm glass hover:bg-slate-800 transition">
+        📈 2. 8-Section BI & OLAP
+      </button>
+      <button onclick="switchTab('rag')" id="tab-rag" class="px-4 py-2 rounded-xl text-sm glass hover:bg-slate-800 transition">
+        🔎 3. RAG Review Assistant
+      </button>
+      <button onclick="switchTab('sql')" id="tab-sql" class="px-4 py-2 rounded-xl text-sm glass hover:bg-slate-800 transition">
+        📊 4. Text-to-SQL Workbench
+      </button>
+      <button onclick="switchTab('bench')" id="tab-bench" class="px-4 py-2 rounded-xl text-sm glass hover:bg-slate-800 transition">
+        🏆 5. Architecture Benchmarks
+      </button>
+    </nav>
+  </header>
+
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+    <!-- SECTION 1: UNIFIED NLP COPILOT -->
+    <section id="view-copilot" class="space-y-6">
+      <div class="glass rounded-2xl p-6 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-xl font-bold text-emerald-400">1. Unified Natural-Language AI + OLAP Copilot</h2>
+            <p class="text-sm text-slate-300">Ask any question — automatically routes across MotherDuck SQL, ChromaDB RAG, and generates live Plotly graphs.</p>
+          </div>
+          <select id="copilot-mode" class="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white">
+            <option value="Auto (Smart Hybrid: SQL + RAG + Charts)">Auto (Smart Hybrid: SQL + RAG + Charts)</option>
+            <option value="Force Hybrid (Always Run SQL + RAG + Charts)">Force Hybrid (SQL + RAG + Charts)</option>
+            <option value="SQL Warehouse + Auto-Charts Only">SQL Warehouse + Auto-Charts Only</option>
+            <option value="Customer Review RAG + Evidence Charts Only">Customer Review RAG Only</option>
+          </select>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button onclick="setPromptAndRun('How are sales performing?')" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/30 border border-slate-700">📊 "How are sales performing?"</button>
+          <button onclick="setPromptAndRun('What are customers saying in reviews?')" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/30 border border-slate-700">💬 "What are customers saying in reviews?"</button>
+          <button onclick="setPromptAndRun('How are deliveries doing?')" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/30 border border-slate-700">🚚 "How are deliveries doing?"</button>
+          <button onclick="setPromptAndRun('Show the distribution of AI sentiment in enriched reviews.')" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/30 border border-slate-700">🤖 AI Sentiment Distribution</button>
+          <button onclick="setPromptAndRun('delete all the data in the database')" class="text-xs px-3 py-1.5 rounded-lg bg-rose-900/40 hover:bg-rose-700/50 border border-rose-700 text-rose-200">🛡️ Test Safety Block (DELETE)</button>
+        </div>
+
+        <textarea id="copilot-input" rows="3" class="w-full rounded-xl bg-slate-900/90 border border-slate-700 p-4 text-white focus:outline-none focus:border-emerald-500" placeholder="Ask anything about Olist sales, products, delivery delays, sellers, or customer reviews..."></textarea>
+
+        <button onclick="runCopilot()" id="run-btn" class="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold shadow-lg transition">
+          🚀 Run Connected Pipeline (Fetch Data + Plot Visual Graphs + Cite Reviews)
+        </button>
+      </div>
+
+      <div id="copilot-output" class="hidden space-y-6">
+        <div id="safety-alert" class="hidden rounded-2xl bg-rose-950/80 border border-rose-600 p-5 text-rose-200 font-semibold"></div>
+        <div id="insight-box" class="glass rounded-2xl p-6 space-y-3"></div>
+        <div id="charts-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div id="chart-primary" class="glass rounded-2xl p-4 min-h-[360px]"></div>
+          <div id="chart-secondary" class="glass rounded-2xl p-4 min-h-[360px]"></div>
+        </div>
+        <div id="sql-box" class="glass rounded-2xl p-6 space-y-3"></div>
+        <div id="rag-box" class="glass rounded-2xl p-6 space-y-3"></div>
+      </div>
+    </section>
+
+    <!-- SECTION 2, 3, 4: QUICK LAUNCHERS INTO SPECIALIZED MODES -->
+    <section id="view-bi" class="hidden space-y-6">
+      <div class="glass rounded-2xl p-6 space-y-4">
+        <h2 class="text-xl font-bold text-emerald-400">2. 8-Section Interactive BI & OLAP Cube Explorer</h2>
+        <p class="text-sm text-slate-300">Click any of the 8 Business Intelligence domains below to load live MotherDuck charts:</p>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <button onclick="switchTab('copilot'); setPromptAndRun('How are sales performing?')" class="p-3 rounded-xl bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-left text-sm font-semibold">A & B. Executive & Monthly Sales</button>
+          <button onclick="switchTab('copilot'); setPromptAndRun('How many repeat customers have more than one order?')" class="p-3 rounded-xl bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-left text-sm font-semibold">C. Customer Retention</button>
+          <button onclick="switchTab('copilot'); setPromptAndRun('Which product categories have the highest sales value?')" class="p-3 rounded-xl bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-left text-sm font-semibold">D. Product Category Ranking</button>
+          <button onclick="switchTab('copilot'); setPromptAndRun('Show the top 10 sellers by total product revenue.')" class="p-3 rounded-xl bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-left text-sm font-semibold">E. Top 10 Sellers</button>
+          <button onclick="switchTab('copilot'); setPromptAndRun('What is the average delivery delay by customer state?')" class="p-3 rounded-xl bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-left text-sm font-semibold">F. Delivery Delay by State</button>
+          <button onclick="switchTab('copilot'); setPromptAndRun('Which payment types have the highest total payment value?')" class="p-3 rounded-xl bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-left text-sm font-semibold">G. Payment Methods Share</button>
+          <button onclick="switchTab('copilot'); setPromptAndRun('Show the distribution of AI sentiment in enriched reviews.')" class="p-3 rounded-xl bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-left text-sm font-semibold">H. AI Review Sentiment</button>
+          <button onclick="switchTab('copilot'); setPromptAndRun('What do customers complain about regarding late deliveries?')" class="p-3 rounded-xl bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-left text-sm font-semibold">🔎 Diagnostic Review RAG</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-rag" class="hidden space-y-6">
+      <div class="glass rounded-2xl p-6 space-y-4">
+        <h2 class="text-xl font-bold text-emerald-400">3. Opinion-Aware Multi-Stage RAG Assistant (K=3–8 Adaptive)</h2>
+        <p class="text-sm text-slate-300">Searches 3,011 enriched reviews in ChromaDB (`ai/chroma_db`) with query rewriting, opinion re-ranking, and `[review_id]` citation verification.</p>
+        <button onclick="switchTab('copilot'); document.getElementById('copilot-mode').value='Customer Review RAG + Evidence Charts Only'; setPromptAndRun('What do customers complain about regarding late deliveries?')" class="px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-bold">Open in RAG Mode & Run Delivery Complaint Analysis</button>
+      </div>
+    </section>
+
+    <section id="view-sql" class="hidden space-y-6">
+      <div class="glass rounded-2xl p-6 space-y-4">
+        <h2 class="text-xl font-bold text-emerald-400">4. Guarded Text-to-SQL Workbench (SQLGlot AST Safety Layer)</h2>
+        <p class="text-sm text-slate-300">Generates DuckDB SQL over approved `olist.marts.*` tables with SELECT-only enforcement and 200-row safety cap.</p>
+        <button onclick="switchTab('copilot'); document.getElementById('copilot-mode').value='SQL Warehouse + Auto-Charts Only'; setPromptAndRun('Which product categories have the highest sales value?')" class="px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-bold">Open in SQL Mode & Query Top Product Categories</button>
+      </div>
+    </section>
+
+    <!-- SECTION 5: ARCHITECTURE BENCHMARKS & WHY OUR DESIGN WINS -->
+    <section id="view-bench" class="hidden space-y-6">
+      <div class="glass rounded-2xl p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-bold text-emerald-400">🏆 5. Empirical Architecture Benchmarks (`benchmarks/` Suite)</h2>
+            <p class="text-sm text-slate-300">Proving quantitatively why our Hybrid Fact Constellation (Galaxy Schema) + Cloud ELT + Multi-Stage RAG + Agentic SQL beats alternative designs.</p>
+          </div>
+          <button onclick="loadBenchmarks()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold">⚡ Re-Run Live Benchmarks</button>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div id="bench-score-chart" class="glass rounded-2xl p-4 min-h-[340px]"></div>
+          <div id="bench-latency-chart" class="glass rounded-2xl p-4 min-h-[340px]"></div>
+        </div>
+        <div id="bench-tables" class="space-y-6"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    function switchTab(name) {
+      ['copilot', 'bi', 'rag', 'sql', 'bench'].forEach(t => {
+        document.getElementById('view-' + t).classList.add('hidden');
+        document.getElementById('tab-' + t).classList.remove('tab-active');
+        document.getElementById('tab-' + t).classList.add('glass');
+      });
+      document.getElementById('view-' + name).classList.remove('hidden');
+      document.getElementById('tab-' + name).classList.add('tab-active');
+      if (name === 'bench') loadBenchmarks();
+    }
+
+    function setPromptAndRun(text) {
+      document.getElementById('copilot-input').value = text;
+      runCopilot();
+    }
+
+    async function runCopilot() {
+      const prompt = document.getElementById('copilot-input').value.trim();
+      const mode = document.getElementById('copilot-mode').value;
+      const btn = document.getElementById('run-btn');
+      btn.textContent = '⏳ Running 7-Step Pipeline (Query Understanding -> SQL/RAG -> MotherDuck -> Charts)...';
+      document.getElementById('copilot-output').classList.remove('hidden');
+      document.getElementById('safety-alert').classList.add('hidden');
+
+      const res = await fetch('/api/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, mode })
+      });
+      const data = await res.json();
+      btn.textContent = '🚀 Run Connected Pipeline (Fetch Data + Plot Visual Graphs + Cite Reviews)';
+
+      if (!data.ok) {
+        const alertEl = document.getElementById('safety-alert');
+        alertEl.textContent = '❌ ' + (data.error || 'Request rejected.');
+        alertEl.classList.remove('hidden');
+        document.getElementById('insight-box').innerHTML = '';
+        document.getElementById('sql-box').innerHTML = '';
+        document.getElementById('rag-box').innerHTML = '';
+        return;
+      }
+
+      document.getElementById('insight-box').innerHTML = `
+        <h3 class="text-lg font-bold text-emerald-400">6️⃣ & 7️⃣ Final Answer & Grounded Insights</h3>
+        <div class="text-sm text-slate-200 whitespace-pre-line">${data.llm_narrative || ''}</div>
+        ${data.rag && data.rag.answer ? `<div class="mt-4 pt-4 border-t border-slate-700 text-sm text-slate-200 whitespace-pre-line"><strong>🔎 Customer Review RAG Synthesis:</strong>\n${data.rag.answer}</div>` : ''}
+      `;
+
+      if (data.sql && data.sql.rows && data.sql.rows.length > 0) {
+        const rows = data.sql.rows;
+        const cols = data.sql.columns;
+        const xCol = cols[0];
+        const yCol = cols.find(c => typeof rows[0][c] === 'number' && !c.endsWith('_pct_of_total')) || cols[1];
+
+        Plotly.newPlot('chart-primary', [{
+          x: rows.slice(0, 20).map(r => r[xCol]),
+          y: rows.slice(0, 20).map(r => r[yCol]),
+          type: 'bar',
+          marker: { color: '#10b981' }
+        }], {
+          title: `${yCol} by ${xCol}`,
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          plot_bgcolor: 'rgba(0,0,0,0)',
+          font: { color: '#e2e8f0' }
+        });
+
+        Plotly.newPlot('chart-secondary', [{
+          labels: rows.slice(0, 10).map(r => r[xCol]),
+          values: rows.slice(0, 10).map(r => r[yCol]),
+          type: 'pie',
+          hole: 0.42
+        }], {
+          title: `Share of ${yCol} (Top 10)`,
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          font: { color: '#e2e8f0' }
+        });
+
+        document.getElementById('sql-box').innerHTML = `
+          <h4 class="font-bold text-emerald-400">🛡️ Validated MotherDuck SQL (${rows.length} rows in ${data.sql.elapsed_ms} ms)</h4>
+          <pre class="bg-slate-950 p-3 rounded-xl text-xs text-emerald-300 overflow-x-auto">${data.sql.safe_sql}</pre>
+        `;
+      }
+    }
+
+    async function loadBenchmarks() {
+      const res = await fetch('/api/benchmarks');
+      const payload = await res.json();
+      if (!payload.ok) return;
+      const archs = payload.data['1_schema_architecture_experiments'].architectures;
+
+      Plotly.newPlot('bench-score-chart', [{
+        y: archs.map(a => a.Architecture),
+        x: archs.map(a => a.Overall_Score_100),
+        type: 'bar',
+        orientation: 'h',
+        marker: { color: ['#10b981', '#38bdf8', '#f59e0b', '#a855f7', '#ef4444'] }
+      }], {
+        title: 'Overall Architecture Score (0–100, Higher = Better)',
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { color: '#e2e8f0' },
+        margin: { l: 240 }
+      });
+
+      Plotly.newPlot('bench-latency-chart', [{
+        x: archs.map(a => a.Architecture),
+        y: archs.map(a => a.Avg_Query_Latency_ms),
+        type: 'bar',
+        marker: { color: '#38bdf8' }
+      }], {
+        title: 'Average OLAP Query Latency (ms, Lower = Faster)',
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { color: '#e2e8f0' }
+      });
+
+      const tableRows = archs.map(a => `
+        <tr class="border-t border-slate-800">
+          <td class="p-3 font-semibold text-emerald-300">${a.Architecture}</td>
+          <td class="p-3">${a.Joins_Per_Query}</td>
+          <td class="p-3">${a.Avg_Query_Latency_ms} ms</td>
+          <td class="p-3">${a.Fan_Trap_Payment_Error_Pct}%</td>
+          <td class="p-3 font-bold">${a.Overall_Score_100}/100</td>
+          <td class="p-3 text-xs text-slate-300">${a.Verdict}</td>
+        </tr>
+      `).join('');
+
+      document.getElementById('bench-tables').innerHTML = `
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-800/80 text-slate-300">
+              <tr>
+                <th class="p-3">Architecture</th>
+                <th class="p-3">Joins</th>
+                <th class="p-3">Latency</th>
+                <th class="p-3">Fan-Trap Error</th>
+                <th class="p-3">Score</th>
+                <th class="p-3">Verdict</th>
+              </tr>
+            </thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>
